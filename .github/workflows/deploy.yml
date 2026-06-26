@@ -13,7 +13,10 @@
 name: Deploy to Lightsail
 
 on:
-  workflow_dispatch:        # 수동 실행만
+  push:
+    branches:
+      - main
+  workflow_dispatch:
 
 concurrency:
   group: deploy-production   # 동시 배포 방지
