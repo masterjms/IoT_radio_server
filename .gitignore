@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.pyc
+venv/
+.env
+
+# 미디어 업로드 (런타임 생성물)
+media/uploads/
+
+# 웹 UI 빌드 결과물 (gunpo-broadcaster에서 배포)
+web/
+
+# 빌드/로그
+*.log

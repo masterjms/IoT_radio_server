@@ -1,0 +1,25 @@
+# /etc/systemd/system/iotradio.service
+#
+# 설치:
+#   sudo cp deploy/iotradio.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now iotradio
+#   journalctl -u iotradio -f
+#
+# .env 파일(인제스트 토큰 등)이 있으면 EnvironmentFile로 주입된다.
+
+[Unit]
+Description=IoT Radio Server
+After=network.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/opt/iotradio
+EnvironmentFile=-/opt/iotradio/.env
+ExecStart=/opt/iotradio/venv/bin/python app/server.py
+Restart=on-failure
+RestartSec=2
+MemoryMax=700M
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,40 @@
+# .github/workflows/deploy.yml
+#
+# 수동 배포(workflow_dispatch). 라이브 방송 중 자동 배포로 끊기는 것을 막기 위해
+# push 트리거 대신 버튼을 눌러 실행한다.
+#
+# 사전 준비 (GitHub 저장소 Settings → Secrets and variables → Actions):
+#   LIGHTSAIL_HOST   서버 고정 IP 또는 도메인
+#   LIGHTSAIL_USER   ubuntu
+#   LIGHTSAIL_SSH_KEY  Lightsail SSH 개인키(.pem) 전체 내용
+#
+# 서버에는 /opt/iotradio가 git clone 되어 있고 venv가 준비된 상태여야 한다.
+
+name: Deploy to Lightsail
+
+on:
+  workflow_dispatch:        # 수동 실행만
+
+concurrency:
+  group: deploy-production   # 동시 배포 방지
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.LIGHTSAIL_HOST }}
+          username: ${{ secrets.LIGHTSAIL_USER }}
+          key: ${{ secrets.LIGHTSAIL_SSH_KEY }}
+          script: |
+            set -e
+            cd /opt/iotradio
+            git pull --ff-only
+            ./venv/bin/pip install -q -r requirements.txt
+            sudo systemctl restart iotradio
+            sleep 2
+            systemctl is-active iotradio
+            echo "deploy done: $(git rev-parse --short HEAD)"
