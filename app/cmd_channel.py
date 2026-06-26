@@ -197,6 +197,12 @@ async def cmd_handler(request):
     try:
         async for msg in ws:
             if msg.type == WSMsgType.TEXT:
+                # C6 heartbeat는 WebSocket PING 제어 프레임이 아니라
+                # 일반 text "ping"이다. JSON 파싱 전에 동일 문자열을
+                # echo해야 C6가 연결 정상으로 판단한다.
+                if msg.data == "ping":
+                    await ws.send_str("ping")
+                    continue
                 try:
                     payload = json.loads(msg.data)
                 except json.JSONDecodeError:
