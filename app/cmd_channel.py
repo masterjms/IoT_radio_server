@@ -6,6 +6,13 @@ cmd_channel.py — /cmd WSS 제어 채널.
  - 서버 -> C6 명령(JSON)을 송신한다: LIVE_START, LIVE_STOP, FILE_START, FILE_STOP
  - C6 -> 서버 보고(JSON)를 수신한다: FILE_END, FILE_ABORT, LIVE_STATS, LIVE_READY
  - ping/pong heartbeat로 끊긴 연결을 정리한다.
+
+JSON 포맷은 사양 06 문서를 그대로 따른다.
+서버는 C6와만 대화하며, P4와 직접 통신하지 않는다.
+
+주의: C6가 자신의 device_id를 서버에 알리는 방법은 사양에 명시되어
+있지 않다(신규 설계 영역). 여기서는 연결 URL의 query 파라미터
+`?device=<id>`로 받는다고 가정한다. 없으면 원격주소를 임시 id로 쓴다.
 """
 
 import json

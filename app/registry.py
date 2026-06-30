@@ -20,6 +20,7 @@ device_id 안정성:
 """
 
 import asyncio
+import time
 
 from logging_conf import get_logger
 
@@ -28,9 +29,10 @@ log = get_logger("registry")
 
 class Registry:
     def __init__(self):
-        self._cmd = {}       # device_id -> ws (제어 채널)
-        self._audio = {}     # device_id -> ws (오디오 채널)
-        self._ingest = None  # 현재 활성 방송자 ws (단일)
+        self._cmd = {}            # device_id -> ws (제어 채널)
+        self._cmd_since = {}      # device_id -> connected_at(epoch)
+        self._audio = {}          # device_id -> ws (오디오 채널)
+        self._ingest = None       # 현재 활성 방송자 ws (단일)
 
     # ── 내부: 기존 연결 선점 닫기 ─────────────────────────
     @staticmethod
@@ -48,6 +50,7 @@ class Registry:
     def add_cmd(self, device_id, ws):
         old = self._cmd.get(device_id)
         self._cmd[device_id] = ws
+        self._cmd_since[device_id] = time.time()
         if old is not None and not old.closed:
             # 이전 연결 닫기는 비동기라 태스크로 띄운다.
             asyncio.create_task(self._close_old(old, device_id, "cmd"))
@@ -76,6 +79,25 @@ class Registry:
 
     def all_cmd(self):
         return list(self._cmd.items())
+
+    def device_list(self):
+        """
+        단말 목록 스냅샷. UI 표시용.
+        connected: 현재 cmd WSS가 살아있는지
+        audio_connected: 현재 audio WSS가 살아있는지(LIVE 중에만 의미 있음)
+        since: cmd 채널이 마지막으로 (재)연결된 epoch 초
+        """
+        out = []
+        for device_id, ws in self._cmd.items():
+            out.append({
+                "device_id": device_id,
+                "connected": not ws.closed,
+                "audio_connected": device_id in self._audio
+                                    and not self._audio[device_id].closed,
+                "since": self._cmd_since.get(device_id),
+            })
+        out.sort(key=lambda d: d["device_id"])
+        return out
 
     # ── AUDIO ──────────────────────────────────────────────
     def add_audio(self, device_id, ws):

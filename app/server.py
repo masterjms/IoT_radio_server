@@ -47,6 +47,7 @@ async def health_handler(request):
         "session": session.snapshot(),
         "cmd_devices": len(registry.all_cmd()),
         "audio_devices": registry.audio_count(),
+        "devices": registry.device_list(),
         "ingest_connected": registry.has_ingest(),
         "live_stats": runtime.stats() if runtime else None,
     }
