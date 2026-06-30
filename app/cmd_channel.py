@@ -6,13 +6,6 @@ cmd_channel.py — /cmd WSS 제어 채널.
  - 서버 -> C6 명령(JSON)을 송신한다: LIVE_START, LIVE_STOP, FILE_START, FILE_STOP
  - C6 -> 서버 보고(JSON)를 수신한다: FILE_END, FILE_ABORT, LIVE_STATS, LIVE_READY
  - ping/pong heartbeat로 끊긴 연결을 정리한다.
-
-JSON 포맷은 사양 06 문서를 그대로 따른다.
-서버는 C6와만 대화하며, P4와 직접 통신하지 않는다.
-
-주의: C6가 자신의 device_id를 서버에 알리는 방법은 사양에 명시되어
-있지 않다(신규 설계 영역). 여기서는 연결 URL의 query 파라미터
-`?device=<id>`로 받는다고 가정한다. 없으면 원격주소를 임시 id로 쓴다.
 """
 
 import json
@@ -120,8 +113,18 @@ async def broadcast_to_devices(registry, payload):
 
 # ── C6 -> 서버 보고 처리 ───────────────────────────────────
 
-def _handle_report(device_id, msg, session):
+def _is_preempt_abort(msg):
+    """FILE_ABORT가 LIVE 선점(PREEMPTED_BY_LIVE)에 의한 것인지 판정."""
+    # 06 문서: reason 0x02 = PREEMPTED_BY_LIVE
+    if msg.get("reason") == 0x02:
+        return True
+    return str(msg.get("fail_reason", "")).upper() == "PREEMPTED_BY_LIVE"
+
+
+async def _handle_report(device_id, msg, app):
     """C6가 올린 JSON 보고를 해석한다."""
+    session = app["session"]
+    registry = app["registry"]
     mtype = msg.get("type")
 
     if mtype == "FILE_END":
@@ -138,7 +141,12 @@ def _handle_report(device_id, msg, session):
         log.warning("[FILE] abort device=%s file_id=%s reason=%s last_offset=%s",
                     device_id, msg.get("file_id"),
                     msg.get("fail_reason"), msg.get("last_offset"))
-        session.stop_file()
+        # PREEMPTED_BY_LIVE는 이미 LIVE가 시작된 상태이므로 FILE 종료 처리를
+        # 하지 않는다(LIVE 상태를 건드리면 안 됨). 그 외 사유만 FILE 정리.
+        if not _is_preempt_abort(msg):
+            session.stop_file()
+        else:
+            log.info("[FILE] abort is PREEMPTED_BY_LIVE — keeping LIVE state")
 
     elif mtype == "LIVE_STATS":
         # 페이싱 엔진이 참고할 관측값. 지금은 로그만.
@@ -147,9 +155,27 @@ def _handle_report(device_id, msg, session):
                  msg.get("underrun_count"), msg.get("rx_seq_last"))
 
     elif mtype == "LIVE_READY":
-        # 사양상 현재 C6는 보내지 않을 수 있으나, 보내면 처리한다.
-        log.info("[LIVE] ready device=%s status=%s reason=%s",
-                 device_id, msg.get("status"), msg.get("reason"))
+        status = msg.get("status", 0)
+        if status == 0:
+            log.info("[LIVE] ready OK device=%s session=%s",
+                     device_id, msg.get("session_id"))
+        else:
+            # P4 준비 실패/타임아웃 → 진행 중이던 LIVE를 정리한다.
+            log.warning("[LIVE] P4 ready FAILED device=%s status=%s reason=%s",
+                        device_id, status, msg.get("reason"))
+            runtime = app.get("live")
+            if runtime is not None:
+                await runtime.stop()
+                app["live"] = None
+            if session.state == State.LIVE:
+                cid = session.next_cmd_id()
+                await broadcast_to_devices(
+                    registry, build_live_stop(cid, session.session_id))
+                session.stop_live()
+            # 군포(ingest) 연결도 정리한다.
+            ing = registry.get_ingest()
+            if ing is not None and not ing.closed:
+                await ing.close()
 
     else:
         log.info("[CMD] <- %s unknown/other type=%s", device_id, mtype)
@@ -197,18 +223,12 @@ async def cmd_handler(request):
     try:
         async for msg in ws:
             if msg.type == WSMsgType.TEXT:
-                # C6 heartbeat는 WebSocket PING 제어 프레임이 아니라
-                # 일반 text "ping"이다. JSON 파싱 전에 동일 문자열을
-                # echo해야 C6가 연결 정상으로 판단한다.
-                if msg.data == "ping":
-                    await ws.send_str("ping")
-                    continue
                 try:
                     payload = json.loads(msg.data)
                 except json.JSONDecodeError:
                     log.warning("[CMD] <- %s non-JSON text dropped", device_id)
                     continue
-                _handle_report(device_id, payload, session)
+                await _handle_report(device_id, payload, request.app)
             elif msg.type == WSMsgType.ERROR:
                 log.warning("[WSS] cmd error device=%s: %s",
                             device_id, ws.exception())
