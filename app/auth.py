@@ -72,6 +72,17 @@ def _verify_token(token: str):
     return jwt.decode(token, _cfg["secret"], algorithms=["HS256"])
 
 
+def verify_jwt(token: str) -> bool:
+    """외부(WSS 채널 등)에서 쓰는 불리언 검증. 유효하면 True."""
+    if not token:
+        return False
+    try:
+        _verify_token(token)
+        return True
+    except jwt.InvalidTokenError:
+        return False
+
+
 # ── 로그인 핸들러 ───────────────────────────────────────────
 
 async def login_handler(request):
