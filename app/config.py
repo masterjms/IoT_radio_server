@@ -50,11 +50,15 @@ INGEST_TOKEN = os.environ.get("IOTRADIO_INGEST_TOKEN", "change-me-in-env")
 
 
 # ── heartbeat ───────────────────────────────────────────────
-# 서버 주도 WebSocket ping. C6 펌웨어가 표준 ping/pong에 응답하지 않으면
-# 이 주기마다 연결이 끊길 수 있어 데모에서는 비활성화(None)한다.
-# 값을 정수로 두면 그 주기(초)로 ping을 보낸다.
-WS_HEARTBEAT_SEC = None      # None=비활성화, 숫자=ping 주기(초)
-WS_HEARTBEAT_TIMEOUT = 10    # pong 미응답 허용시간
+# 서버 주도 WebSocket 제어프레임 ping/pong. 단말이 텍스트로 보내는
+# 자체 하트비트("ping" 문자열, cmd_channel에서 별도로 pong 응답)와는
+# 완전히 다른 메커니즘이라 서로 간섭하지 않는다.
+#
+# 이걸 켜두지 않으면, 단말이 전원 차단이나 네트워크 단절처럼 TCP
+# 종료 신호 없이 갑자기 사라졌을 때 서버가 이를 감지할 방법이 없어
+# 죽은 연결이 레지스트리에 영원히 남는다(UI에 유령 단말로 표시됨).
+WS_HEARTBEAT_SEC = 30         # 30초마다 ping, 응답 없으면 연결 종료
+WS_HEARTBEAT_TIMEOUT = 10     # pong 미응답 허용시간
 
 
 def ensure_dirs():

@@ -218,7 +218,10 @@ async def cmd_handler(request):
 
     device_id = request.query.get("device") or request.remote or "unknown"
 
-    ws = web.WebSocketResponse(heartbeat=config.WS_HEARTBEAT_SEC)
+    ws = web.WebSocketResponse(
+        heartbeat=config.WS_HEARTBEAT_SEC,
+        timeout=config.WS_HEARTBEAT_TIMEOUT,
+    )
     await ws.prepare(request)
     registry.add_cmd(device_id, ws)
     log.info("[WSS] cmd connected device=%s", device_id)

@@ -102,7 +102,11 @@ async def ingest_handler(request):
     registry = request.app["registry"]
     session = request.app["session"]
 
-    ws = web.WebSocketResponse(heartbeat=config.WS_HEARTBEAT_SEC, max_msg_size=0)
+    ws = web.WebSocketResponse(
+        heartbeat=config.WS_HEARTBEAT_SEC,
+        timeout=config.WS_HEARTBEAT_TIMEOUT,
+        max_msg_size=0,
+    )
     await ws.prepare(request)
 
     # 1) 첫 메시지로 인증

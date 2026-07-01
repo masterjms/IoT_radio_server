@@ -24,7 +24,11 @@ async def audio_handler(request):
     registry = request.app["registry"]
     device_id = request.query.get("device") or request.remote or "unknown"
 
-    ws = web.WebSocketResponse(heartbeat=config.WS_HEARTBEAT_SEC, max_msg_size=0)
+    ws = web.WebSocketResponse(
+        heartbeat=config.WS_HEARTBEAT_SEC,
+        timeout=config.WS_HEARTBEAT_TIMEOUT,
+        max_msg_size=0,
+    )
     await ws.prepare(request)
     registry.add_audio(device_id, ws)
     log.info("[AUDIO] connected device=%s targets=%d",
