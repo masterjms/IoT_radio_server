@@ -50,7 +50,10 @@ INGEST_TOKEN = os.environ.get("IOTRADIO_INGEST_TOKEN", "change-me-in-env")
 
 
 # ── heartbeat ───────────────────────────────────────────────
-WS_HEARTBEAT_SEC = 25        # ping 주기
+# 서버 주도 WebSocket ping. C6 펌웨어가 표준 ping/pong에 응답하지 않으면
+# 이 주기마다 연결이 끊길 수 있어 데모에서는 비활성화(None)한다.
+# 값을 정수로 두면 그 주기(초)로 ping을 보낸다.
+WS_HEARTBEAT_SEC = None      # None=비활성화, 숫자=ping 주기(초)
 WS_HEARTBEAT_TIMEOUT = 10    # pong 미응답 허용시간
 
 

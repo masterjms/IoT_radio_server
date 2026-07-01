@@ -100,21 +100,32 @@ async def broadcast_handler(request):
 
     file_id = session.start_file()
     cmd_id = session.next_cmd_id()
+    # 단말에 보내는 재방송 저장 파일명은 전송 시각 기준 epoch로 매번 새로 만든다.
+    # (원본 저장명과 무관하게, 이번 전송을 식별하는 이름)
+    ext = os.path.splitext(meta["file_name"])[1] or ".mp3"
+    send_file_name = f"file-{int(time.time())}{ext}"
     payload = cmd_channel.build_file_start(
         cmd_id=cmd_id,
         file_id=file_id,
         https_url=meta["https_url"],
         size=meta["size"],
         sha256=meta["sha256"],
-        file_name=meta["file_name"],
+        file_name=send_file_name,
         store_flash=bool(body.get("store_flash", True)),
         autoplay=bool(body.get("autoplay", True)),
     )
 
-    device = body.get("device")
+    # 대상 단말: devices(목록) 우선, 없으면 device(단일), 둘 다 없으면 전체
+    target_devices = body.get("devices")
+    single_device = body.get("device")
     try:
-        if device:
-            sent = await cmd_channel.send_to_device(registry, device, payload)
+        if target_devices:
+            sent_count = 0
+            for dev in target_devices:
+                if await cmd_channel.send_to_device(registry, dev, payload):
+                    sent_count += 1
+        elif single_device:
+            sent = await cmd_channel.send_to_device(registry, single_device, payload)
             sent_count = 1 if sent else 0
         else:
             sent_count = await cmd_channel.broadcast_to_devices(registry, payload)
@@ -142,6 +153,15 @@ async def files_handler(request):
     """GET /api/files — 업로드된 파일 목록."""
     fmgr = request.app["file_manager"]
     return web.json_response({"ok": True, "files": fmgr.list_files()})
+
+
+async def file_delete_handler(request):
+    """DELETE /api/files/{file_name} — 업로드 파일 삭제."""
+    fmgr = request.app["file_manager"]
+    file_name = request.match_info.get("file_name", "")
+    if fmgr.delete(file_name):
+        return web.json_response({"ok": True})
+    return web.json_response({"ok": False, "error": "unknown file_name"}, status=404)
 
 
 # ── LIVE 제어 ──────────────────────────────────────────────

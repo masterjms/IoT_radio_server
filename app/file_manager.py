@@ -58,6 +58,7 @@ class FileManager:
         sha = self._sha256_of(path)
         return {
             "file_name": file_name,
+            "original_name": file_name,  # 재시작 복구분은 원본명을 알 수 없어 저장명으로 대체
             "size": size,
             "sha256": sha,
             "https_url": self._url_for(file_name),
@@ -117,14 +118,15 @@ class FileManager:
 
         meta = {
             "file_name": file_name,
+            "original_name": original_name or file_name,
             "size": size,
             "sha256": h.hexdigest(),
             "https_url": self._url_for(file_name),
             "path": path,
         }
         self._index[file_name] = meta
-        log.info("[FILE] saved name=%s size=%d sha256=%s",
-                 file_name, size, meta["sha256"][:12])
+        log.info("[FILE] saved name=%s (original=%s) size=%d sha256=%s",
+                 file_name, original_name, size, meta["sha256"][:12])
         return meta
 
     def get(self, file_name):
@@ -132,6 +134,21 @@ class FileManager:
 
     def list_files(self):
         return [
-            {k: m[k] for k in ("file_name", "size", "sha256", "https_url")}
+            {k: m[k] for k in
+             ("file_name", "original_name", "size", "sha256", "https_url")}
             for m in self._index.values()
         ]
+
+    def delete(self, file_name):
+        """업로드 파일 삭제. 성공하면 True, 없으면 False."""
+        meta = self._index.get(file_name)
+        if meta is None:
+            return False
+        try:
+            if os.path.exists(meta["path"]):
+                os.remove(meta["path"])
+        except OSError as e:
+            log.warning("[FILE] delete error %s: %s", file_name, e)
+        self._index.pop(file_name, None)
+        log.info("[FILE] deleted name=%s", file_name)
+        return True

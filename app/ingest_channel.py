@@ -141,15 +141,25 @@ async def ingest_handler(request):
     registry.set_ingest(ws)
     log.info("[INGEST] broadcaster connected from %s", request.remote)
 
+    # 첫 메시지의 옵션: record_flash(재방송 저장 여부), devices(대상 단말 목록)
+    record_flash = 1 if auth_msg.get("record_flash", True) else 0
+    target_devices = auth_msg.get("devices")  # None이면 전체
+
     # 3) LIVE 시작: 상태 전이 + LIVE_START + 런타임 준비
     source = IngestSource()
     session_id = session.start_live()
     cmd_id = session.next_cmd_id()
-    await cmd_channel.broadcast_to_devices(
-        registry,
-        cmd_channel.build_live_start(
-            cmd_id, session_id, frame_ms=config.DEFAULT_FRAME_MS,
-            record_flash=0, file_name="live.lopus"))
+    # 재방송 저장 파일명은 전송 시각 기준 epoch로 생성
+    import time as _time
+    live_file_name = f"live-{int(_time.time())}-W.lopus"
+    live_start = cmd_channel.build_live_start(
+        cmd_id, session_id, frame_ms=config.DEFAULT_FRAME_MS,
+        record_flash=record_flash, file_name=live_file_name)
+    if target_devices:
+        for dev in target_devices:
+            await cmd_channel.send_to_device(registry, dev, live_start)
+    else:
+        await cmd_channel.broadcast_to_devices(registry, live_start)
 
     fanout = audio_channel.make_fanout(registry)
     runtime = LiveRuntime(frame_ms=config.DEFAULT_FRAME_MS,
