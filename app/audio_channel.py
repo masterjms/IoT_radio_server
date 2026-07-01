@@ -32,9 +32,19 @@ async def audio_handler(request):
 
     try:
         # 단말은 보통 오디오 채널로 데이터를 보내지 않는다.
-        # 연결 유지와 종료 감지를 위해 수신 루프만 돈다.
+        # 연결 유지와 종료 감지를 위해 수신 루프를 돌며, 단말이 보내는
+        # 하트비트(텍스트 ping 또는 표준 ping 프레임)에는 응답한다.
         async for msg in ws:
-            if msg.type == WSMsgType.ERROR:
+            if msg.type == WSMsgType.TEXT:
+                text = (msg.data or "").strip()
+                try:
+                    reply = "pong" if text.lower() == "ping" else text
+                    await ws.send_str(reply)
+                except Exception:
+                    pass
+            elif msg.type == WSMsgType.PING:
+                await ws.pong(msg.data)
+            elif msg.type == WSMsgType.ERROR:
                 log.warning("[AUDIO] ws error device=%s: %s",
                             device_id, ws.exception())
     finally:

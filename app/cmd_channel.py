@@ -233,9 +233,24 @@ async def cmd_handler(request):
                 try:
                     payload = json.loads(msg.data)
                 except json.JSONDecodeError:
-                    log.warning("[CMD] <- %s non-JSON text dropped", device_id)
+                    # JSON이 아닌 텍스트는 단말의 하트비트(ping)로 간주하고
+                    # 응답(pong)을 돌려준다. 응답이 없으면 단말이 연결을
+                    # 죽은 것으로 보고 주기적으로 끊는다.
+                    text = (msg.data or "").strip()
+                    log.info("[CMD] <- %s heartbeat text=%r -> pong",
+                             device_id, text[:32])
+                    try:
+                        # 단말이 "ping"을 보내면 "pong"으로, 그 외 텍스트는
+                        # 같은 내용으로 에코해 살아있음을 알린다.
+                        reply = "pong" if text.lower() == "ping" else text
+                        await ws.send_str(reply)
+                    except Exception:
+                        pass
                     continue
                 await _handle_report(device_id, payload, request.app)
+            elif msg.type == WSMsgType.PING:
+                # 표준 WebSocket ping 프레임 → 표준 pong으로 응답
+                await ws.pong(msg.data)
             elif msg.type == WSMsgType.ERROR:
                 log.warning("[WSS] cmd error device=%s: %s",
                             device_id, ws.exception())
