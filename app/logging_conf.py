@@ -9,6 +9,37 @@ journald가 수집하므로 stdout으로만 출력한다.
 import logging
 import sys
 
+from aiohttp.abc import AbstractAccessLogger
+
+# access 로그에서 제외할 경로.
+QUIET_PATHS = {"/api/health"}
+
+
+class QuietAccessLogger(AbstractAccessLogger):
+    """기본 access logger와 동일하되, QUIET_PATHS는 기록하지 않는다."""
+
+    def log(self, request, response, time):
+        if request.path in QUIET_PATHS:
+            return
+        self.logger.info(
+            '%s [%s] "%s %s HTTP/%s.%s" %s %s "%s" "%s"',
+            request.remote,
+            self._now_str(),
+            request.method,
+            request.path_qs,
+            request.version.major,
+            request.version.minor,
+            response.status,
+            response.body_length,
+            request.headers.get("Referer", "-"),
+            request.headers.get("User-Agent", "-"),
+        )
+
+    @staticmethod
+    def _now_str():
+        import datetime
+        return datetime.datetime.now().strftime("%d/%b/%Y:%H:%M:%S %z")
+
 
 def setup_logging(level=logging.INFO):
     """루트 로거를 stdout 출력으로 구성한다."""

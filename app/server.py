@@ -22,7 +22,7 @@ import json
 from aiohttp import web
 
 import config
-from logging_conf import setup_logging, get_logger
+from logging_conf import setup_logging, get_logger, QuietAccessLogger
 from registry import Registry
 from session import SessionManager
 from file_manager import FileManager
@@ -103,7 +103,8 @@ def main():
     app = make_app()
     log.info("[BOOT] iotradio server starting on %s:%d (domain=%s)",
              config.HOST, config.PORT, config.PUBLIC_DOMAIN)
-    web.run_app(app, host=config.HOST, port=config.PORT, print=None)
+    web.run_app(app, host=config.HOST, port=config.PORT, print=None,
+                access_log_class=QuietAccessLogger)
 
 
 if __name__ == "__main__":
