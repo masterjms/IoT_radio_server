@@ -17,6 +17,10 @@ from logging_conf import get_logger
 
 log = get_logger("session")
 
+# FILE 상태가 이 시간(초) 넘게 지속되면 단말 응답 유실로 보고 자동 정리.
+# 4MB 파일 다운로드+검증에 충분한 여유값.
+FILE_STALE_SEC = 20
+
 
 class State(enum.Enum):
     IDLE = "IDLE"
@@ -30,6 +34,7 @@ class SessionManager:
         self._session_id = 0      # LIVE 세션 식별자 (증가)
         self._file_id = 0         # FILE 식별자 (증가)
         self._cmd_id = 0          # 명령 일련번호 (증가)
+        self._file_started_at = None  # FILE 시작 시각(자동 만료용)
         self._lock = threading.Lock()
 
     @property
@@ -66,14 +71,26 @@ class SessionManager:
 
     # ── FILE ───────────────────────────────────────────────
     def can_start_file(self):
-        """FILE은 IDLE에서만 시작 가능. LIVE 중이면 거부."""
-        return self._state == State.IDLE
+        """FILE은 IDLE에서만 시작 가능. LIVE 중이면 거부.
+        단, FILE 상태가 비정상적으로 오래(FILE_STALE_SEC) 지속되면
+        단말이 FILE_END/ABORT를 못 보낸 것으로 보고 자동 정리한다.
+        (데모 안전장치: 서버가 FILE 상태에 갇혀 먹통이 되는 것 방지)"""
+        with self._lock:
+            if self._state == State.FILE and self._file_started_at:
+                import time as _t
+                if _t.time() - self._file_started_at > FILE_STALE_SEC:
+                    log.warning("[STATE] FILE stale %.0fs → 자동 IDLE 복구",
+                                _t.time() - self._file_started_at)
+                    self._state = State.IDLE
+            return self._state == State.IDLE
 
     def start_file(self):
         """FILE 시작. 새 file_id 반환."""
+        import time as _t
         with self._lock:
             self._state = State.FILE
             self._file_id += 1
+            self._file_started_at = _t.time()
             fid = self._file_id
         log.info("[STATE] -> FILE file_id=%d", fid)
         return fid
@@ -82,6 +99,7 @@ class SessionManager:
         with self._lock:
             if self._state == State.FILE:
                 self._state = State.IDLE
+                self._file_started_at = None
         log.info("[STATE] FILE -> IDLE")
 
     @property

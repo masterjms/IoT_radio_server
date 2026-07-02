@@ -31,18 +31,22 @@ class Registry:
     def __init__(self):
         self._cmd = {}            # device_id -> ws (제어 채널)
         self._cmd_since = {}      # device_id -> connected_at(epoch)
-        self._audio = {}          # device_id -> ws (오디오 채널)
+        self._audio_socks = []    # [(device_id, ws)] 오디오 채널 (소켓 단위)
         self._ingest = None       # 현재 활성 방송자 ws (단일)
 
     # ── 내부: 기존 연결 선점 닫기 ─────────────────────────
     @staticmethod
     async def _close_old(old_ws, device_id, channel):
-        """이전 WebSocket을 비동기로 닫는다. 이미 닫혔으면 조용히 무시."""
+        """이전 WebSocket을 비동기로 닫는다. 이미 닫혔으면 조용히 무시.
+        빠른 재연결이 반복될 때 close가 오래 매달리지 않도록 타임아웃을 둔다."""
         if old_ws is None or old_ws.closed:
             return
         try:
-            await old_ws.close()
+            await asyncio.wait_for(old_ws.close(), timeout=3.0)
             log.info("[WSS] %s preempted old connection device=%s", channel, device_id)
+        except asyncio.TimeoutError:
+            log.warning("[WSS] %s old close timeout device=%s (강제 무시)",
+                        channel, device_id)
         except Exception as e:
             log.debug("[WSS] %s close old error device=%s: %s", channel, device_id, e)
 
@@ -88,12 +92,12 @@ class Registry:
         since: cmd 채널이 마지막으로 (재)연결된 epoch 초
         """
         out = []
+        audio_ids = {d for (d, w) in self._audio_socks if not w.closed}
         for device_id, ws in self._cmd.items():
             out.append({
                 "device_id": device_id,
                 "connected": not ws.closed,
-                "audio_connected": device_id in self._audio
-                                    and not self._audio[device_id].closed,
+                "audio_connected": device_id in audio_ids,
                 "since": self._cmd_since.get(device_id),
             })
         out.sort(key=lambda d: d["device_id"])
@@ -101,30 +105,28 @@ class Registry:
 
     # ── AUDIO ──────────────────────────────────────────────
     def add_audio(self, device_id, ws):
-        old = self._audio.get(device_id)
-        self._audio[device_id] = ws
-        if old is not None and not old.closed:
-            asyncio.create_task(self._close_old(old, device_id, "audio"))
-            log.warning("[WSS] audio reconnect device=%s (old replaced)", device_id)
-        else:
-            log.info("[WSS] audio registered device=%s total=%d",
-                     device_id, len(self._audio))
+        # audio는 device_id로 식별하지 않고 소켓 단위로 관리한다.
+        # C6가 /audio 접속 시 ?device=<MAC>를 붙이지 않아 여러 단말이
+        # 같은 IP(127.0.0.1)로 들어오는데, device_id로 키를 잡으면 서로
+        # 밀어내 한 대만 남는다. 소켓 집합으로 두면 모두 유지되어 팬아웃된다.
+        self._audio_socks.append((device_id, ws))
+        log.info("[WSS] audio registered device=%s total=%d",
+                 device_id, len(self._audio_socks))
 
     def remove_audio(self, device_id, ws=None):
-        current = self._audio.get(device_id)
-        if current is None:
-            return
-        if ws is not None and current is not ws:
-            log.debug("[WSS] audio remove skipped device=%s (new ws already registered)", device_id)
-            return
-        del self._audio[device_id]
-        log.info("[WSS] audio removed device=%s total=%d", device_id, len(self._audio))
+        before = len(self._audio_socks)
+        self._audio_socks = [
+            (d, w) for (d, w) in self._audio_socks if w is not ws
+        ]
+        if len(self._audio_socks) != before:
+            log.info("[WSS] audio removed device=%s total=%d",
+                     device_id, len(self._audio_socks))
 
     def all_audio(self):
-        return list(self._audio.items())
+        return list(self._audio_socks)
 
     def audio_count(self):
-        return len(self._audio)
+        return len(self._audio_socks)
 
     # ── INGEST (군포 앱) ───────────────────────────────────
     def set_ingest(self, ws):

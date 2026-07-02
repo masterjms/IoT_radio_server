@@ -91,6 +91,7 @@ def make_app():
     app.router.add_post("/api/auth/login", login_handler)
     app.router.add_post("/api/live/start", http_api.live_start_handler)
     app.router.add_post("/api/live/stop", http_api.live_stop_handler)
+    app.router.add_post("/api/server/restart", http_api.server_restart_handler)
     app.router.add_get("/api/files", http_api.files_handler)
     app.router.add_delete("/api/files/{file_name}", http_api.file_delete_handler)
     app.router.add_get("/api/health", health_handler)

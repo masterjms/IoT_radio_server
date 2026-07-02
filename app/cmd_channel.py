@@ -128,6 +128,15 @@ def _is_preempt_abort(msg):
     return str(msg.get("fail_reason", "")).upper() == "PREEMPTED_BY_LIVE"
 
 
+def _is_busy_abort(msg):
+    """FILE_ABORT가 BUSY(단말이 파일 방송 처리 중)인지 판정."""
+    # 가이드: reason 0x08 또는 문자열 "BUSY"
+    r = msg.get("reason")
+    if r == 0x08 or r == "BUSY":
+        return True
+    return str(msg.get("fail_reason", "")).upper() == "BUSY"
+
+
 async def _handle_report(device_id, msg, app):
     """C6가 올린 JSON 보고를 해석한다."""
     session = app["session"]
@@ -145,15 +154,28 @@ async def _handle_report(device_id, msg, app):
         session.stop_file()
 
     elif mtype == "FILE_ABORT":
-        log.warning("[FILE] abort device=%s file_id=%s reason=%s last_offset=%s",
-                    device_id, msg.get("file_id"),
-                    msg.get("fail_reason"), msg.get("last_offset"))
-        # PREEMPTED_BY_LIVE는 이미 LIVE가 시작된 상태이므로 FILE 종료 처리를
-        # 하지 않는다(LIVE 상태를 건드리면 안 됨). 그 외 사유만 FILE 정리.
-        if not _is_preempt_abort(msg):
+        reason = msg.get("reason")
+        fail = msg.get("fail_reason")
+        if _is_busy_abort(msg):
+            # BUSY: 단말이 파일 방송 처리 중이라 새 방송을 받을 수 없는
+            # 임시 거절. 오류가 아니므로 FILE 상태만 즉시 정리해서, 사용자가
+            # 다시 전송 버튼을 누르면 재시도할 수 있게 한다.
+            log.info("[FILE] abort BUSY device=%s file_id=%s — 상태 정리, 재시도 가능",
+                     device_id, msg.get("file_id"))
             session.stop_file()
+            # 프론트가 조회할 수 있도록 마지막 결과를 기록
+            app["last_file_result"] = {"status": "busy", "device": device_id}
+        elif _is_preempt_abort(msg):
+            log.info("[FILE] abort PREEMPTED_BY_LIVE device=%s — LIVE 상태 유지",
+                     device_id)
+            # LIVE가 이미 시작됐으므로 FILE 종료 처리를 하지 않는다.
         else:
-            log.info("[FILE] abort is PREEMPTED_BY_LIVE — keeping LIVE state")
+            log.warning("[FILE] abort device=%s file_id=%s reason=%s last_offset=%s",
+                        device_id, msg.get("file_id"), fail or reason,
+                        msg.get("last_offset"))
+            session.stop_file()
+            app["last_file_result"] = {"status": "abort", "device": device_id,
+                                       "reason": str(fail or reason)}
 
     elif mtype == "LIVE_STATS":
         # 페이싱 엔진이 참고할 관측값. 지금은 로그만.

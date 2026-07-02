@@ -17,7 +17,7 @@ User=ubuntu
 WorkingDirectory=/opt/iotradio
 EnvironmentFile=-/opt/iotradio/.env
 ExecStart=/opt/iotradio/venv/bin/python app/server.py
-Restart=on-failure
+Restart=always
 RestartSec=2
 MemoryMax=700M
 

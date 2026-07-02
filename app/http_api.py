@@ -94,8 +94,13 @@ async def broadcast_handler(request):
 
     # 상태 규칙: LIVE 중이면 FILE 불가
     if not session.can_start_file():
+        st = session.state.value
+        if st == "LIVE":
+            msg_txt = "라이브 방송 중에는 파일을 보낼 수 없습니다."
+        else:
+            msg_txt = "이전 파일 방송이 아직 처리 중입니다. 잠시 후 다시 시도하세요."
         return web.json_response(
-            {"ok": False, "error": f"busy: state={session.state.value}"},
+            {"ok": False, "error": msg_txt, "state": st, "busy": True},
             status=409)
 
     file_id = session.start_file()
@@ -297,3 +302,28 @@ async def live_stop_handler(request):
     session.stop_live()
 
     return web.json_response({"ok": True, "cmd_id": cmd_id, "stats": stats})
+
+
+async def server_restart_handler(request):
+    """POST /api/server/restart — 서버 프로세스를 재시작한다.
+
+    프로세스가 스스로 종료하면 systemd(Restart=always)가 자동으로 되살린다.
+    응답을 먼저 보낸 뒤, 짧은 지연을 두고 종료한다.
+    데모용 수동 복구 버튼. 관리자 인증(JWT 미들웨어)을 통과해야만 호출된다.
+    """
+    log.warning("[SERVER] restart requested by admin — 프로세스 재시작")
+
+    async def _delayed_exit():
+        await asyncio.sleep(0.5)   # 응답 전송 시간 확보
+        # 현재 라이브/파일 세션 정리
+        runtime = request.app.get("live")
+        if runtime is not None:
+            try:
+                await runtime.stop()
+            except Exception:
+                pass
+        # systemd가 되살리도록 프로세스 종료
+        os._exit(0)
+
+    asyncio.create_task(_delayed_exit())
+    return web.json_response({"ok": True, "message": "서버를 재시작합니다. 잠시 후 자동으로 복구됩니다."})
